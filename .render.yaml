@@ -18,4 +18,9 @@ services:
       - key: USE_REMOTE_TTS
         value: "true"
       - key: REMOTE_TTS_MODEL
+        # Default remote TTS model to use with Hugging Face Inference API
+        value: "microsoft/speecht5_tts"
+      # NOTE: Do NOT store the HUGGINGFACE_API_KEY here. Add it in the Render dashboard
+      # as a secret environment variable named HUGGINGFACE_API_KEY.
+      - key: HUGGINGFACE_API_KEY
         value: ""
