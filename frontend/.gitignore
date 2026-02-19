@@ -1,0 +1,39 @@
+# Frontend .gitignore - Common Node.js/React patterns
+
+# Dependencies
+node_modules/
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Production build
+dist/
+dist-ssr/
+*.local
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.suo
+*.sln.docstates
+.DS_Store
+*.swp
+*.swo
+*~
+
+# Testing
+coverage/
+.nyc_output/
+
+# Vite cache
+.vite/
+
+# Temporary
+temp_audio/
+*.wav
+*.mp3
