@@ -15,3 +15,7 @@ services:
         value: "speecht5_tts"
       - key: USE_GPU
         value: "false"
+      - key: USE_REMOTE_TTS
+        value: "true"
+      - key: REMOTE_TTS_MODEL
+        value: ""

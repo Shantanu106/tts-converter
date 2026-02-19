@@ -13,6 +13,7 @@ from transformers import SpeechT5Processor, SpeechT5ForTextToSpeech, SpeechT5Hif
 import numpy as np
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
+import requests
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +27,10 @@ class TTSEngine:
         self.vocoder = None
         self.initialized = False
         self.executor = ThreadPoolExecutor(max_workers=2)
+        # Remote TTS config (use remote inference if enabled)
+        self.use_remote = os.environ.get("USE_REMOTE_TTS", "false").lower() in ("1", "true", "yes")
+        self.remote_model = os.environ.get("REMOTE_TTS_MODEL")
+        self.hf_api_key = os.environ.get("HUGGINGFACE_API_KEY")
         
         # Voice configurations
         self.voices = {
@@ -58,15 +63,24 @@ class TTSEngine:
         logger.info("⏳ Loading TTS models...")
         
         try:
+            # If configured to use remote TTS, skip heavy local model load
+            if self.use_remote:
+                logger.info("🔁 Using remote TTS endpoint (skipping local model load)")
+                # remote model and key should be provided via env vars
+                if not self.hf_api_key or not self.remote_model:
+                    logger.warning("HUGGINGFACE_API_KEY or REMOTE_TTS_MODEL not set; remote TTS may fail at synthesize time")
+                self.initialized = True
+                return
+
             # Use SpeechT5 as it's reliable and available
             # XTTS-v2 requires special setup and may need cloning, SpeechT5 is more accessible
-            
+
             loop = asyncio.get_event_loop()
             await loop.run_in_executor(self.executor, self._load_models_sync)
-            
+
             self.initialized = True
             logger.info("✅ Models loaded successfully")
-            
+
         except Exception as e:
             logger.error(f"❌ Failed to initialize models: {e}")
             # Fallback: load a simpler model
@@ -148,20 +162,31 @@ class TTSEngine:
         
         try:
             logger.info(f"🎤 Synthesizing: '{text[:50]}...' | Voice: {voice} | Speed: {speed}")
-            
-            # Run synthesis in executor (CPU/GPU bound)
+
             loop = asyncio.get_event_loop()
-            audio_path = await loop.run_in_executor(
-                self.executor,
-                self._synthesize_sync,
-                text,
-                voice,
-                speed,
-                language
-            )
-            
+            if self.use_remote:
+                # Call remote synthesis (runs in thread pool)
+                audio_path = await loop.run_in_executor(
+                    self.executor,
+                    self._synthesize_remote,
+                    text,
+                    voice,
+                    speed,
+                    language
+                )
+            else:
+                # Run local synthesis in executor (CPU/GPU bound)
+                audio_path = await loop.run_in_executor(
+                    self.executor,
+                    self._synthesize_sync,
+                    text,
+                    voice,
+                    speed,
+                    language
+                )
+
             return audio_path
-            
+
         except Exception as e:
             logger.error(f"❌ Synthesis failed: {e}")
             raise
@@ -249,6 +274,43 @@ class TTSEngine:
         speaker_embedding = torch.randn(1, 512).to(self.device)
         
         return speaker_embedding
+
+    def _synthesize_remote(self, text: str, voice: str, speed: float, language: str) -> Path:
+        """Synthesize via remote inference (Hugging Face Inference API)."""
+        try:
+            import random
+
+            if not self.hf_api_key:
+                raise RuntimeError("HUGGINGFACE_API_KEY not set for remote TTS")
+            if not self.remote_model:
+                raise RuntimeError("REMOTE_TTS_MODEL not set for remote TTS")
+
+            headers = {"Authorization": f"Bearer {self.hf_api_key}"}
+            api_url = f"https://api-inference.huggingface.co/models/{self.remote_model}"
+
+            payload = {"inputs": text}
+
+            logger.info(f"🌐 Calling remote TTS model {self.remote_model}")
+            resp = requests.post(api_url, headers=headers, json=payload, stream=True, timeout=120)
+            resp.raise_for_status()
+
+            # Create temp file
+            output_dir = Path("./temp_audio")
+            output_dir.mkdir(exist_ok=True)
+            output_path = output_dir / f"speech_remote_{int(random.random() * 100000)}.wav"
+
+            # Write response content to file
+            with open(output_path, "wb") as f:
+                for chunk in resp.iter_content(chunk_size=8192):
+                    if chunk:
+                        f.write(chunk)
+
+            logger.info(f"✅ Remote audio saved: {output_path}")
+            return output_path
+
+        except Exception as e:
+            logger.error(f"Remote synthesis error: {e}")
+            raise
     
     def _adjust_speed(self, audio: np.ndarray, speed: float) -> np.ndarray:
         """
