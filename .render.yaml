@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: tts-converter
+    env: docker
+    branch: main
+    dockerfilePath: Dockerfile
+    instanceType: free
+    autoDeploy: true
+    envVars:
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      - key: ENVIRONMENT
+        value: "production"
+      - key: TTS_MODEL
+        value: "speecht5_tts"
+      - key: USE_GPU
+        value: "false"
